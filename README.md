@@ -1,18 +1,28 @@
 # BRDrive Robot — J&T Express SP
 
-Robô de automação que executa a cada 25 minutos, faz login automático no sistema JMS BR (incluindo solução de CAPTCHA slider via visão computacional), extrai o relatório consolidado de viagens, processa os dados e dispara alertas inteligentes via Feishu para a equipe operacional.
+Robô de automação que executa a cada 5 minutos, consome a API REST do JMS BR diretamente via `requests`, processa os dados de viagens e dispara alertas inteligentes via Feishu para a equipe operacional — sem abrir browser, sem Selenium.
+
+---
+
+## Como funciona a autenticação
+
+O JMS usa CAPTCHA no login, o que impossibilita automação de browser de forma confiável. A solução adotada:
+
+1. **Login manual uma única vez** — o usuário acessa o JMS normalmente no navegador
+2. **Captura do token** — o `YL_TOKEN` é extraído do `localStorage` via console (F12)
+3. **Extração contínua via API** — o robô usa o token para chamar a API REST do JMS a cada 5 minutos, sem precisar de browser
+
+O token tem longa duração. Enquanto não expirar, o robô roda de forma totalmente autônoma.
 
 ---
 
 ## O que o robô faz (a cada ciclo)
 
-1. Faz login no JMS BR via Selenium (Edge)
-2. Resolve o CAPTCHA slider automaticamente com OpenCV (template matching)
-3. Exporta o relatório consolidado de viagens
-4. Processa os dados: Status de Lacre, Pontualidade, categorização de operações
-5. Atualiza o Database e o BRDrive no OneDrive compartilhado
-6. Dispara alertas via Feishu Bot para viagens com saída/chegada atrasada
-7. Evita alertas duplicados (controle por ID de viagem + data)
+1. Chama a API REST do JMS com o token de sessão via `requests`
+2. Processa os dados: Status de Lacre, Pontualidade, categorização de operações
+3. Atualiza o Database e o BRDrive no OneDrive compartilhado
+4. Dispara alertas via Feishu Bot para viagens com saída/chegada atrasada
+5. Evita alertas duplicados (controle por ID de viagem + data)
 
 ## Alertas disparados
 
@@ -35,12 +45,11 @@ Robô de automação que executa a cada 25 minutos, faz login automático no sis
 
 | Componente | Tecnologia |
 |------------|-----------|
-| Automação web | Python, Selenium (Edge WebDriver) |
-| Solução de CAPTCHA | OpenCV, NumPy (template matching) |
+| Extração de dados | Python, `requests` (API REST do JMS) |
 | Processamento de dados | Pandas |
 | Alertas | Feishu Bot API (OAuth2) |
 | Backup de alertas | Gmail SMTP |
-| Agendamento | Loop com `time.sleep()` configurável |
+| Agendamento | Loop com `time.sleep()` configurável (5 min) |
 
 ## Estrutura
 
@@ -69,25 +78,29 @@ pip install -r requirements.txt
 
 # 2. Configurar credenciais
 cp .env.example .env
-# Edite .env com suas credenciais (JMS, Feishu)
+# Edite .env com o YL_TOKEN do JMS e credenciais do Feishu
 
-# 3. Instalar Edge WebDriver compatível com sua versão do Edge
-# https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/
-# Coloque msedgedriver.exe na pasta do projeto
-
-# 4. Testar uma execução
+# 3. Testar uma execução
 python main.py --agora
 
-# 5. Rodar continuamente
+# 4. Rodar continuamente (a cada 5 minutos)
 python main.py
+```
+
+**Como obter o YL_TOKEN:**
+```
+1. Abrir JMS no navegador e fazer login normalmente
+2. F12 → Console
+3. Digitar: localStorage.getItem("YL_TOKEN")
+4. Copiar o valor e colar no .env
 ```
 
 ## Parâmetros
 
 ```bash
-python main.py                   # ciclos a cada 25 minutos
+python main.py                   # ciclos a cada 5 minutos
 python main.py --agora           # executa uma vez imediatamente
-python main.py --intervalo 30    # altera intervalo para 30 minutos
+python main.py --intervalo 10    # altera intervalo para 10 minutos
 ```
 
 ## Manter rodando 24h (Windows)
