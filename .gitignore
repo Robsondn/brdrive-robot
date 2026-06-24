@@ -1,0 +1,17 @@
+# Credenciais — NUNCA subir ao GitHub
+.env
+
+# Logs gerados em runtime
+logs/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Driver (binário)
+msedgedriver.exe
+
+# Arquivos Excel temporários
+~$*.xlsx
+*.tmp
