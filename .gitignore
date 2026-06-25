@@ -15,3 +15,5 @@ msedgedriver.exe
 # Arquivos Excel temporários
 ~$*.xlsx
 *.tmp
+
+.claude/
