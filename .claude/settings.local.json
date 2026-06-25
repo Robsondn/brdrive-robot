@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(pip install \"webdriver-manager>=4.0.1\" \"opencv-python>=4.9.0\")",
+      "PowerShell(powercfg /hibernate off)",
+      "PowerShell(powercfg /change monitor-timeout-ac 0)",
+      "PowerShell(powercfg /change standby-timeout-ac 0)",
+      "PowerShell(powercfg /change hibernate-timeout-ac 0)",
+      "PowerShell($env:USERNAME; $env:USERPROFILE)",
+      "PowerShell($env:USERNAME)",
+      "PowerShell($env:USERPROFILE)",
+      "PowerShell($base = \"C:\\\\Users\\\\Robo Transporte\\\\OneDrive - J&T EXPRESS - FILIAL SP\"; Test-Path \"$base\\\\Robo BRDrive\\\\Database_-_Power_bi.xlsx\"; Test-Path \"$base\\\\Robo BRDrive\\\\BRDrive_BI_Novo.xlsx\")",
+      "PowerShell($base = \"C:\\\\Users\\\\Robo Transporte\\\\OneDrive - J&T EXPRESS - FILIAL SP\\\\Power BI Gus\"; Test-Path \"$base\\\\Database - Power bi.xlsx\"; Test-Path \"$base\\\\BRDrive_BI_Novo.xlsx\")",
+      "PowerShell($env:PYTHONIOENCODING=\"utf-8\"; cd \"C:\\\\Users\\\\Robo Transporte\\\\OneDrive - J&T EXPRESS - FILIAL SP\\\\BRDrive_Robot\"; python listar_grupos.py)"
+    ]
+  }
+}
