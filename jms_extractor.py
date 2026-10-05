@@ -17,6 +17,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 import cv2
 import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # ── CONFIGURAÇÕES ─────────────────────────────────────────────────────────────
 JMS_URL       = "https://jmsbr.jtjms-br.com/login"
@@ -26,8 +29,13 @@ RELATORIO_URL = (
     "%20da%20linha%20secund%C3%A1ria&moduleCode="
 )
 
-JMS_USER     = os.getenv("JMS_USER",     "01813143")
-JMS_PASSWORD = os.getenv("JMS_PASSWORD", "Ju14jo04@")
+JMS_USER     = os.getenv("JMS_USER",     "")
+JMS_PASSWORD = os.getenv("JMS_PASSWORD", "")
+if not JMS_USER or not JMS_PASSWORD:
+    raise RuntimeError(
+        "JMS_USER / JMS_PASSWORD nao configurados. Defina-os no .env "
+        "(veja .env.example) - nao ha mais valor padrao no codigo."
+    )
 
 DOWNLOAD_DIR = str(Path.home() / "Downloads" / "JMS_Exports")
 ONEDRIVE_BASE = r"C:\Users\Robo Transporte\OneDrive - J&T EXPRESS - FILIAL SP"

@@ -7,6 +7,8 @@ import os
 import time
 import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -21,27 +23,64 @@ log = logging.getLogger("JMS_API")
 API_BASE  = "https://gw.jtjms-br.com"
 PAGE_SIZE = 100
 
-# Token manual de fallback — usado se o Edge não estiver acessível
-TOKEN_MANUAL = "4bbe8fb9cc694263b6c1a46ac5186541"
+# Token manual de fallback — usado se o Edge não estiver acessível.
+# Defina em .env (veja .env.example); não há mais valor padrão no código.
+TOKEN_MANUAL = os.getenv("JMS_TOKEN_MANUAL", "")
 
 _ESTADO_MAP = {1: "Programado", 4: "Em andamento", 5: "Programado"}
 _TIPO_MAP   = {1: "Coleta", 2: "Entrega"}
 
 
+def _criar_sessao() -> requests.Session:
+    """Sessão com keep-alive — reutiliza a mesma conexão TCP entre páginas."""
+    s = requests.Session()
+    adapter = HTTPAdapter(
+        max_retries=Retry(total=0),
+        pool_connections=2,
+        pool_maxsize=5,
+    )
+    s.mount("https://", adapter)
+    s.mount("http://",  adapter)
+    return s
+
+
+_SESSAO: requests.Session = _criar_sessao()
+
+
+def _recrear_sessao():
+    global _SESSAO
+    _SESSAO.close()
+    _SESSAO = _criar_sessao()
+
+
+def _porta_aberta(host: str, porta: int, timeout: float = 3.0) -> bool:
+    import socket
+    try:
+        with socket.create_connection((host, porta), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 def _obter_token() -> str | None:
     """Extrai YL_TOKEN do Edge aberto na porta 9222. Usa TOKEN_MANUAL como fallback."""
-    try:
-        options = Options()
-        options.add_experimental_option("debuggerAddress", "localhost:9222")
-        driver = webdriver.Edge(options=options)
-        token = driver.execute_script("return localStorage.getItem('YL_TOKEN')")
-        if token:
-            log.info("✅ YL_TOKEN obtido do navegador")
-            _salvar_token_db(token)
-            return token
-        log.warning("⚠️ YL_TOKEN não encontrado no localStorage — usando token manual")
-    except Exception as e:
-        log.warning(f"⚠️ Erro ao conectar ao Edge: {e} — usando token manual")
+    if _porta_aberta("localhost", 9222):
+        try:
+            options = Options()
+            options.add_experimental_option("debuggerAddress", "localhost:9222")
+            driver = webdriver.Edge(options=options)
+            driver.refresh()
+            time.sleep(3)
+            token = driver.execute_script("return localStorage.getItem('YL_TOKEN')")
+            if token:
+                log.info("✅ YL_TOKEN obtido do navegador")
+                _salvar_token_db(token)
+                return token
+            log.warning("⚠️ YL_TOKEN não encontrado no localStorage — usando token manual")
+        except Exception as e:
+            log.warning(f"⚠️ Erro ao conectar ao Edge: {e} — usando token manual")
+    else:
+        log.warning("⚠️ Edge não disponível na porta 9222 — usando token manual")
 
     if TOKEN_MANUAL:
         log.info("✅ Usando TOKEN_MANUAL")
@@ -125,8 +164,21 @@ def _buscar_todos(token: str) -> list[dict]:
             "plannedDepartureEndTime":    data_fim,
             "source":                     1,
         }
-        resp = requests.get(url, headers=_headers(token), params=params, timeout=30)
-        data = resp.json()
+        data = None
+        for tentativa in range(3):
+            try:
+                resp = _SESSAO.get(url, headers=_headers(token), params=params, timeout=60)
+                data = resp.json()
+                break
+            except Exception as e:
+                log.warning(f"⚠️ Tentativa {tentativa+1}/3 falhou: {e}")
+                # Recria a sessão para limpar conexão corrompida
+                _recrear_sessao()
+                if tentativa < 2:
+                    time.sleep(5)
+        if data is None:
+            log.error("❌ Falha após 3 tentativas — abortando extração")
+            break
 
         if not data.get("succ"):
             log.error(f"❌ Erro na API: {data.get('msg')}")
