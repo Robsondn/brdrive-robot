@@ -21,7 +21,11 @@ load_dotenv(Path(__file__).parent / ".env")
 log = logging.getLogger("JMS_API")
 
 API_BASE  = "https://gw.jtjms-br.com"
-PAGE_SIZE = 100
+# 1000 e o maximo que o JMS aceita nesse relatorio. Pagina pequena (era
+# 100) fazia a consulta levar varias paginas - como o JMS atualiza os
+# dados ao vivo, viagens podiam mudar de posicao no meio da leitura e
+# sumir da paginacao (mesmo bug corrigido no JMS_Database/extrator).
+PAGE_SIZE = 1000
 
 # Token manual de fallback — usado se o Edge não estiver acessível.
 # Defina em .env (veja .env.example); não há mais valor padrão no código.

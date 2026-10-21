@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 
@@ -173,13 +173,21 @@ def processar_database(df: pd.DataFrame, datas_alvo: list[str]) -> pd.DataFrame:
 
 def processar_brdrive(df_br: pd.DataFrame, df_db: pd.DataFrame, datas_alvo: list[str]) -> pd.DataFrame:
     """
-    Monta as linhas novas para o BRDrive a partir do Database
-    e as adiciona ao final do arquivo existente.
+    Monta as linhas do BRDrive a partir do Database pras datas em datas_alvo
+    e substitui as linhas dessas datas no arquivo existente (nao so acrescenta -
+    datas_alvo agora inclui dias recentes que ja estavam no BRDrive, pra
+    capturar saida/chegada/lacre que aconteceram depois da primeira vez que
+    o dia apareceu - ver detectar_datas_novas).
     """
     df_db["_data"] = pd.to_datetime(df_db[DB_COLS["data"]], errors="coerce")
     novos = df_db[df_db["_data"].dt.date.astype(str).isin(datas_alvo)].copy()
 
-    log.info(f"Adicionando {len(novos)} linhas ao BRDrive...")
+    # Tira do BRDrive as linhas dessas datas antes de reinserir, senao
+    # reprocessar um dia que ja estava la duplica as linhas.
+    datas_br_atual = pd.to_datetime(df_br["DATA"], errors="coerce").dt.date.astype(str)
+    df_br = df_br[~datas_br_atual.isin(datas_alvo)].copy()
+
+    log.info(f"Atualizando {len(novos)} linhas no BRDrive (datas: {datas_alvo})...")
 
     rows = []
     for _, r in novos.iterrows():
@@ -225,10 +233,22 @@ def processar_brdrive(df_br: pd.DataFrame, df_db: pd.DataFrame, datas_alvo: list
 
 
 # ── DETECTAR DATAS NOVAS ──────────────────────────────────────────────────────
+DIAS_JANELA_ATUALIZACAO = 3  # hoje + quantos dias pra tras re-sincroniza sempre
+
+
 def detectar_datas_novas(df_db: pd.DataFrame, df_br: pd.DataFrame) -> list[str]:
     """
-    Retorna as datas que existem no Database mas ainda não
-    foram adicionadas ao BRDrive.
+    Retorna as datas que precisam ser (re)escritas no BRDrive: as que existem
+    no Database mas ainda não foram adicionadas, MAIS uma janela dos últimos
+    dias (DIAS_JANELA_ATUALIZACAO) mesmo que já estejam no BRDrive.
+
+    Antes so pegava data realmente nova - uma vez que o dia aparecia no
+    BRDrive (geralmente na primeira viagem dele, de madrugada) ele nunca mais
+    era atualizado, mesmo que o Database continuasse recebendo saida/chegada/
+    lacre reais o dia inteiro. Resultado: o BRDrive (e por tabela o BRDrive
+    Ledger, que usa ele pra tudo que nao e "hoje") ficava com viagens
+    "Programado"/sem lacre pra sempre, mesmo depois de concluidas (reclamação
+    em 21/10/2026, ID SETR22606391840).
     """
     datas_db = set(
         pd.to_datetime(df_db[DB_COLS["data"]], errors="coerce")
@@ -238,9 +258,15 @@ def detectar_datas_novas(df_db: pd.DataFrame, df_br: pd.DataFrame) -> list[str]:
         pd.to_datetime(df_br["DATA"], errors="coerce")
         .dt.date.astype(str).dropna().unique()
     )
-    novas = sorted(datas_db - datas_br)
-    log.info(f"📅 Datas novas detectadas: {novas}")
-    return novas
+    novas = datas_db - datas_br
+
+    hoje = datetime.now().date()
+    janela = {str(hoje - timedelta(days=d)) for d in range(DIAS_JANELA_ATUALIZACAO)}
+    recentes = datas_db & janela
+
+    alvo = sorted(novas | recentes)
+    log.info(f"📅 Datas pra atualizar no BRDrive (novas + janela de {DIAS_JANELA_ATUALIZACAO}d): {alvo}")
+    return alvo
 
 
 # ── GERAR ALERTAS ─────────────────────────────────────────────────────────────
