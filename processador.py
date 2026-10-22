@@ -56,8 +56,13 @@ def calc_status_tempo(saida_real, cheg_real) -> str:
 
 
 def calc_saida_prazo(saida_real, saida_plan, lacre) -> str:
-    """No Prazo / Atrasado para saída"""
-    ref = to_ts(saida_real) if is_valid(saida_real) else to_ts(lacre) if is_valid(lacre) else None
+    """No Prazo / Atrasado para saída.
+    Regra: compara o planejado com o horario do LACRE (motorista confirmou
+    de verdade na hora) - so cai pro campo "saida real" do JMS quando nao ha
+    lacre. Antes estava ao contrario (JMS primeiro, lacre so de fallback),
+    o que gerava atraso errado quando o campo do JMS vinha com hora muito
+    depois do lacre real (pedido em 22/10/2026, caso SRTR22606259900)."""
+    ref = to_ts(lacre) if is_valid(lacre) else to_ts(saida_real) if is_valid(saida_real) else None
     if ref is None:
         return "Atrasado"
     plan = to_ts(saida_plan)
@@ -67,8 +72,9 @@ def calc_saida_prazo(saida_real, saida_plan, lacre) -> str:
 
 
 def calc_chegada_prazo(cheg_real, cheg_plan, deslacre) -> str:
-    """No Prazo / Atrasado para chegada"""
-    ref = to_ts(cheg_real) if is_valid(cheg_real) else to_ts(deslacre) if is_valid(deslacre) else None
+    """No Prazo / Atrasado para chegada - mesma regra de calc_saida_prazo,
+    priorizando o deslacre sobre o campo "chegada real" do JMS."""
+    ref = to_ts(deslacre) if is_valid(deslacre) else to_ts(cheg_real) if is_valid(cheg_real) else None
     if ref is None:
         return "Atrasado"
     plan = to_ts(cheg_plan)
@@ -79,7 +85,9 @@ def calc_chegada_prazo(cheg_real, cheg_plan, deslacre) -> str:
 
 # Para o BRDrive usa terminologia diferente
 def calc_pontualidade_saida(saida_real, saida_plan, lacre) -> str | None:
-    ref = to_ts(saida_real) if is_valid(saida_real) else to_ts(lacre) if is_valid(lacre) else None
+    """Mesma regra de calc_saida_prazo: lacre primeiro, campo do JMS so de
+    fallback quando nao ha lacre."""
+    ref = to_ts(lacre) if is_valid(lacre) else to_ts(saida_real) if is_valid(saida_real) else None
     if ref is None:
         return None  # Sem registro = NaN no BRDrive
     plan = to_ts(saida_plan)
@@ -89,7 +97,9 @@ def calc_pontualidade_saida(saida_real, saida_plan, lacre) -> str | None:
 
 
 def calc_pontualidade_chegada(cheg_real, cheg_plan, deslacre) -> str | None:
-    ref = to_ts(cheg_real) if is_valid(cheg_real) else to_ts(deslacre) if is_valid(deslacre) else None
+    """Mesma regra de calc_chegada_prazo: deslacre primeiro, campo do JMS so
+    de fallback quando nao ha deslacre."""
+    ref = to_ts(deslacre) if is_valid(deslacre) else to_ts(cheg_real) if is_valid(cheg_real) else None
     if ref is None:
         return None
     plan = to_ts(cheg_plan)
@@ -195,6 +205,15 @@ def processar_brdrive(df_br: pd.DataFrame, df_db: pd.DataFrame, datas_alvo: list
         cr  = r[DB_COLS["cheg_real"]]
         lac = r[DB_COLS["lacre"]]
         des = r[DB_COLS["deslacre"]]
+        # Horario "efetivo": prioriza o lacre/deslacre (motorista confirmou
+        # de verdade na hora) sobre o campo nativo do JMS - mesma regra do
+        # BRDrive_Ledger_Web pros dados ao vivo. Sem isso, "Horário real de
+        # saída" ficava com o horario (as vezes bem posterior) que o JMS
+        # registra, inflando o atraso mesmo com o lacre dentro do prazo
+        # (pedido em 22/10/2026, caso SRTR22606259900: lacre as 03:43 de
+        # 17/10, mas o campo do JMS so registrava 03:44 de 19/10).
+        sr_ef = lac if is_valid(lac) else sr
+        cr_ef = des if is_valid(des) else cr
         rows.append({
             "Número do ID":                     r[DB_COLS["id"]],
             "Status":                           r[DB_COLS["status"]],
@@ -207,17 +226,17 @@ def processar_brdrive(df_br: pd.DataFrame, df_db: pd.DataFrame, datas_alvo: list
             "Chegada":                          r[DB_COLS["chegada"]],
             "TIPO DE OPERAÇÃO":                 r[DB_COLS["tipo_op"]],
             "Tempo de partida planejada":        r[DB_COLS["saida_plan"]],
-            "Horário real de saída":             sr,
+            "Horário real de saída":             sr_ef,
             "Tempo de chegada planejado":        r[DB_COLS["cheg_plan"]],
-            "Tempo real de chegada":             cr,
-            "Tempo Saida OFF":                  calc_tempo_saida_off(sr),
-            "Tempo chegada OFF":                calc_tempo_chegada_off(cr),
+            "Tempo real de chegada":             cr_ef,
+            "Tempo Saida OFF":                  calc_tempo_saida_off(sr_ef),
+            "Tempo chegada OFF":                calc_tempo_chegada_off(cr_ef),
             "BASE/PA":                          r[DB_COLS["base_pa"]],
             "CONDUTOR":                         r[DB_COLS["condutor"]],
             "RESPONSAVEL":                      r[DB_COLS["responsavel"]],
-            "PONTUALIDADE SAÍDA":               calc_pontualidade_saida(sr, r[DB_COLS["saida_plan"]], lac),
-            "PONTUALIDADE CHEGADA":             calc_pontualidade_chegada(cr, r[DB_COLS["cheg_plan"]], des),
-            "EXECUÇÃO SAÍDA":                   calc_execucao_saida(sr),
+            "PONTUALIDADE SAÍDA":               calc_pontualidade_saida(sr_ef, r[DB_COLS["saida_plan"]], lac),
+            "PONTUALIDADE CHEGADA":             calc_pontualidade_chegada(cr_ef, r[DB_COLS["cheg_plan"]], des),
+            "EXECUÇÃO SAÍDA":                   calc_execucao_saida(sr_ef),
             "Horário de lacração do veículo":   lac,
             "Horário de deslacração do veículo": des,
             "STATUS LACRE SAIDA":               calc_status_lacre(lac),
