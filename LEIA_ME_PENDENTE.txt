@@ -1,0 +1,49 @@
+PENDENTE NESTA MAQUINA (Robo Transporte) - 19/11/2026
+========================================================
+
+O QUE MUDOU
+------------
+Foi adicionado um novo alerta no Feishu: aviso de ATRASO pra subir o
+lacre/deslacre (mesmo que seja so 1 minuto de atraso), agrupado por DC,
+pra operacao poder cobrar o responsavel na hora. Commit f77f20d no repo
+brdrive-robot (ja sincronizado por OneDrive nesta pasta).
+
+Arquivos alterados: jms_api.py, alertas_jms.py, controle_alertas.py,
+faishu_alertas.py, main_teste.py.
+
+O QUE PRECISA SER FEITO AQUI
+------------------------------
+O main_teste.py roda em loop continuo (nao recarrega sozinho). Pra esse
+codigo novo valer, precisa:
+
+1. Parar o processo do main_teste.py que esta rodando agora (CTRL+C na
+   janela dele, ou fechar a janela/terminal).
+
+2. Rodar de novo:
+       py main_teste.py --agora
+   (um ciclo so, pra testar - confere no log se deu erro)
+
+3. Se o ciclo rodou sem erro, deixar rodando continuo de novo:
+       py main_teste.py
+
+COMO CONFERIR SE FUNCIONOU
+-----------------------------
+No log (logs/teste_AAAAMMDD.log ou na tela), procurar por uma linha
+parecida com:
+    🚨 N atraso(s) de lacre/deslacre novo(s) — enviando alerta
+ou, se nao tiver nenhum atraso no momento:
+    🚨 Nenhum atraso de lacre/deslacre neste ciclo
+
+Se aparecer "WEBHOOK_ATRASO_LACRE ainda nao configurado" significa que o
+arquivo main_teste.py nao sincronizou direito - conferir se o OneDrive
+terminou de baixar a versao nova (git log deve mostrar o commit f77f20d
+como o mais recente).
+
+O alerta vai cair no grupo do Feishu cujo webhook foi configurado em
+WEBHOOK_ATRASO_LACRE (dentro de main_teste.py).
+
+SE DER ALGUM ERRO
+--------------------
+Essa funcionalidade foi testada com dados sinteticos (nao foi possivel
+testar com o JMS ao vivo, pois essa sessao nao tinha o Edge logado).
+Qualquer erro no ciclo, colar o log aqui ou avisar o Robson pra revisar.
