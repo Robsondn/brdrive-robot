@@ -20,12 +20,12 @@ from datetime import datetime
 from pathlib import Path
 
 from jms_api import extrair
-from alertas_jms import verificar_alertas_df, verificar_status_anteriores, verificar_lacre_df
-from faishu_alertas import enviar_ciclo, enviar_consolidado, enviar_alerta_sistema, enviar_lacre, EMAIL_TESTE_FEISHU
-from controle_alertas import filtrar_novos, get_pendentes, marcar_bateu, marcar_nao_bateu_alertado, get_periodo_consolidado, filtrar_novos_lacre
+from alertas_jms import verificar_alertas_df, verificar_status_anteriores, verificar_lacre_df, verificar_atraso_lacre_df
+from faishu_alertas import enviar_ciclo, enviar_consolidado, enviar_alerta_sistema, enviar_lacre, enviar_atraso_lacre, EMAIL_TESTE_FEISHU
+from controle_alertas import filtrar_novos, get_pendentes, marcar_bateu, marcar_nao_bateu_alertado, get_periodo_consolidado, filtrar_novos_lacre, filtrar_novos_atraso_lacre
 
 # ── CONFIGURAÇÃO ──────────────────────────────────────────────────────────────
-INTERVALO_MIN = 10
+INTERVALO_MIN = 5
 LOG_DIR       = str(Path(__file__).parent / "logs")
 
 # Destinos por categoria — grupos Feishu oficiais
@@ -39,6 +39,8 @@ DESTINOS_POR_CATEGORIA = {
 # Grupo principal — consolidado às 17h, 23h, 05h, 11h
 WEBHOOK_LACRE        = "https://open.feishu.cn/open-apis/bot/v2/hook/077815d5-8b39-4249-9e3d-77cdd0cf2039"  # Coleta PA + Coleta Base
 WEBHOOK_LACRE_SD     = "https://open.feishu.cn/open-apis/bot/v2/hook/0fca0c24-6b2d-401e-b627-e4685ef21650"  # Secundária + Devolução
+# Grupo de COBRANÇA de atraso de lacre/deslacre (pedido em 19/11/2026)
+WEBHOOK_ATRASO_LACRE = "https://open.feishu.cn/open-apis/bot/v2/hook/1ee9378a-9628-4320-8d90-0f3583e69986"
 GRUPO_CAPACITY       = "oc_fa69c6ad9e23492413590bdb9fba7079"  # SP Capacity Team
 HORARIOS_CONSOLIDADO = {17, 23, 5, 11}
 # Janela de cada horário: hora_inicio → hora_fim
@@ -135,6 +137,20 @@ def executar():
         log.info(f"🔒 {len(lacres)} lacre(s) já alertado(s) hoje")
     else:
         log.info("🔒 Nenhum lacre encontrado neste ciclo")
+
+    # 5b. Alerta de ATRASO de lacre/deslacre (mesmo 1 min) — pra cobrança
+    atrasos      = verificar_atraso_lacre_df(df)
+    novos_atraso = filtrar_novos_atraso_lacre(atrasos) if atrasos else []
+    if novos_atraso:
+        log.info(f"🚨 {len(novos_atraso)} atraso(s) de lacre/deslacre novo(s) — enviando alerta")
+        if WEBHOOK_ATRASO_LACRE:
+            enviar_atraso_lacre(novos_atraso, destinos=[WEBHOOK_ATRASO_LACRE])
+        else:
+            log.warning("⚠️ WEBHOOK_ATRASO_LACRE ainda não configurado — alerta não enviado")
+    elif atrasos:
+        log.info(f"🚨 {len(atrasos)} atraso(s) de lacre/deslacre já alertado(s) hoje")
+    else:
+        log.info("🚨 Nenhum atraso de lacre/deslacre neste ciclo")
 
     # 6. Consolidado para SP Capacity Team às 17h, 23h, 05h, 11h
     global _ultima_hora_consolidado

@@ -24,9 +24,18 @@ def _carregar() -> dict:
 
 
 def _salvar(dados: dict):
+    import time
     ARQUIVO.parent.mkdir(parents=True, exist_ok=True)
-    with open(ARQUIVO, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
+    for tentativa in range(5):
+        try:
+            with open(ARQUIVO, "w", encoding="utf-8") as f:
+                json.dump(dados, f, ensure_ascii=False, indent=2)
+            return
+        except PermissionError:
+            # OneDrive pode travar o arquivo durante sincronização
+            if tentativa < 4:
+                time.sleep(2)
+    log.warning("⚠️ Não foi possível salvar alertas_enviados.json após 5 tentativas")
 
 
 def _dados_hoje() -> dict:
@@ -143,6 +152,27 @@ def filtrar_novos_lacre(lacres: list[dict]) -> list[dict]:
     _salvar(dados)
     if novos:
         log.info(f"🔒 {len(novos)} lacre(s) novo(s) para alertar")
+    return novos
+
+
+def filtrar_novos_atraso_lacre(atrasos: list[dict]) -> list[dict]:
+    """Retorna atrasos de lacre/deslacre ainda nao alertados hoje. A chave
+    inclui qual(is) perna(s) estao atrasadas - se uma viagem ja foi alertada
+    so por atraso na saida e DEPOIS a chegada tambem atrasa, isso conta como
+    um estado novo e alerta de novo (chegada atrasada e informacao nova pra
+    cobrar, mesmo que a saida ja tivesse sido avisada)."""
+    dados    = _dados_hoje()
+    enviados = dados.setdefault("atrasos_lacre_alertados", {})
+    novos    = []
+    for a in atrasos:
+        assinatura = f"{a['id']}|L{1 if a.get('atraso_lacre_min') else 0}|D{1 if a.get('atraso_deslacre_min') else 0}"
+        if assinatura not in enviados:
+            novos.append(a)
+            enviados[assinatura] = {"enviado_em": datetime.now().strftime("%H:%M")}
+    dados["atrasos_lacre_alertados"] = enviados
+    _salvar(dados)
+    if novos:
+        log.info(f"🚨 {len(novos)} atraso(s) de lacre/deslacre novo(s) para alertar")
     return novos
 
 

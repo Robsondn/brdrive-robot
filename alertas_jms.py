@@ -31,6 +31,8 @@ COL_PLACA    = "Placa do carro"
 COL_TRANSP   = "Abreviatura de transportador"
 COL_LACRE    = "Hora de Lacre"
 COL_TELEFONE = "Telefone do Carro"
+COL_PLAN_CHEG = "Tempo de chegada planejado"
+COL_DESLACRE  = "Hora de Deslacre"
 
 
 def verificar_lacre_df(df: "pd.DataFrame") -> list[dict]:
@@ -86,6 +88,91 @@ def verificar_lacre_df(df: "pd.DataFrame") -> list[dict]:
         })
 
     log.info(f"Lacres encontrados: {len(resultado)}")
+    return resultado
+
+
+def _dc_base_sentido(origem: str, chegada: str) -> tuple[str, str, str]:
+    """SP BRE sempre vira grupo proprio nos dois sentidos (saindo ou
+    chegando), mesmo quando o outro lado e um DC de verdade - pedido em
+    19/11/2026, diferente da regra do relatorio_pontualidade.py/
+    processador.py (onde SP BRE so vira DC quando o outro lado NAO e um DC).
+    Fora isso, o lado que comeca com "DC " e o DC da viagem, o outro lado e
+    a "base"."""
+    o = (origem or "").strip()
+    c = (chegada or "").strip()
+    if o == "SP BRE":
+        return o, c, "DC -> Base"
+    if c == "SP BRE":
+        return c, o, "Base -> DC"
+    if o.upper().startswith("DC "):
+        return o, c, "DC -> Base"
+    if c.upper().startswith("DC "):
+        return c, o, "Base -> DC"
+    return "SEM DC E SEM SP BRE", f"{o} -> {c}", "Direto (sem DC)"
+
+
+def verificar_atraso_lacre_df(df: "pd.DataFrame") -> list[dict]:
+    """Retorna viagens (SPS) onde o lacre e/ou o deslacre aconteceram DEPOIS
+    do planejado - mesmo que so por 1 minuto. Diferente de verificar_lacre_df
+    (que so avisa "lacre feito", sem checar atraso): aqui a viagem so entra
+    se tiver prova concreta de atraso (lacre/deslacre registrado e atrasado),
+    pra operacao poder cobrar o responsavel. Pedido em 19/11/2026."""
+    hoje = datetime.now().date()
+    resultado = []
+
+    for _, r in df.iterrows():
+        regional = str(r.get(COL_REGIONAL, "")).strip().upper()
+        if regional not in REGIONAIS_ALVO:
+            continue
+
+        saida_plan = pd.to_datetime(r.get(COL_PLAN), errors="coerce")
+        cheg_plan  = pd.to_datetime(r.get(COL_PLAN_CHEG), errors="coerce")
+
+        lacre_dt = pd.to_datetime(r.get(COL_LACRE), errors="coerce")
+        if pd.notna(lacre_dt) and lacre_dt.date() != hoje:
+            lacre_dt = pd.NaT
+        deslacre_dt = pd.to_datetime(r.get(COL_DESLACRE), errors="coerce")
+        if pd.notna(deslacre_dt) and deslacre_dt.date() != hoje:
+            deslacre_dt = pd.NaT
+
+        atraso_lacre_min = (
+            (lacre_dt - saida_plan).total_seconds() / 60
+            if pd.notna(lacre_dt) and pd.notna(saida_plan) else None
+        )
+        atraso_deslacre_min = (
+            (deslacre_dt - cheg_plan).total_seconds() / 60
+            if pd.notna(deslacre_dt) and pd.notna(cheg_plan) else None
+        )
+
+        lacre_atrasado    = atraso_lacre_min is not None and atraso_lacre_min > 0
+        deslacre_atrasado = atraso_deslacre_min is not None and atraso_deslacre_min > 0
+        if not (lacre_atrasado or deslacre_atrasado):
+            continue
+
+        tipo = str(r.get(COL_TIPO, "")).strip().upper()
+        origem  = str(r.get(COL_ORIGEM, ""))
+        destino = str(r.get(COL_DESTINO, ""))
+        dc, base, sentido = _dc_base_sentido(origem, destino)
+
+        resultado.append({
+            "id":                   str(r.get(COL_ID, "")),
+            "viagem":               str(r.get(COL_VIAGEM, "")),
+            "condutor":             str(r.get(COL_CONDUTOR, "")),
+            "telefone":             str(r.get(COL_TELEFONE, "") or ""),
+            "transportador":        str(r.get(COL_TRANSP, "") or ""),
+            "tipo_linha":           tipo,
+            "dc":                   dc,
+            "base":                 base,
+            "sentido":              sentido,
+            "saida_plan":           saida_plan.strftime("%H:%M") if pd.notna(saida_plan) else None,
+            "hora_lacre":           lacre_dt.strftime("%H:%M") if pd.notna(lacre_dt) else None,
+            "atraso_lacre_min":     int(atraso_lacre_min) if lacre_atrasado else None,
+            "cheg_plan":            cheg_plan.strftime("%H:%M") if pd.notna(cheg_plan) else None,
+            "hora_deslacre":        deslacre_dt.strftime("%H:%M") if pd.notna(deslacre_dt) else None,
+            "atraso_deslacre_min":  int(atraso_deslacre_min) if deslacre_atrasado else None,
+        })
+
+    log.info(f"Atrasos de lacre/deslacre encontrados: {len(resultado)}")
     return resultado
 
 

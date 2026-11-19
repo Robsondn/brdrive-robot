@@ -224,9 +224,11 @@ def _para_df(registros: list[dict]) -> pd.DataFrame:
             "Regional de saída do carro":   r.get("sendRegionalAgent", ""),
             "Tempo de partida planejada":   r.get("plannedDepartureTime", ""),
             "Horário real de saída":        r.get("actualDepartureTime") or "",
+            "Tempo de chegada planejado":   r.get("plannedArrivalTime", ""),
             "Placa do carro":               r.get("plateNumber") or "",
             "Abreviatura de transportador": r.get("carrierShortName") or "",
             "Hora de Lacre":               r.get("scanTime") or "",
+            "Hora de Deslacre":             r.get("unScanTime") or "",
             "Telefone do Carro":            r.get("driverContact") or "",
         })
     return pd.DataFrame(linhas)
@@ -246,6 +248,12 @@ def extrair() -> pd.DataFrame | None:
     if not registros:
         log.error("❌ Nenhum dado retornado pela API")
         return None
+
+    try:  # painel de viagens (Render): nunca pode derrubar o robo
+        from enviar_painel import enviar as _enviar_painel
+        _enviar_painel(registros, token)
+    except Exception as e:
+        log.warning(f"⚠️ Painel: {e}")
 
     df = _para_df(registros)
     log.info(f"✅ {len(df)} registros obtidos via API")

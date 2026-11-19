@@ -15,6 +15,7 @@ TESTE:
 
 import io
 import os
+import time
 import smtplib
 import logging
 import requests
@@ -118,13 +119,21 @@ def _enviar_card_feishu(token: str, receive_id: str, card: dict, id_type: str = 
 def _enviar_webhook(url: str, card: dict):
     """Envia card via webhook Feishu (grupos externos)."""
     body = {"msg_type": "interactive", "card": card}
-    resp = requests.post(url, json=body, timeout=10)
-    data = resp.json()
-    if data.get("code") != 0:
-        log.error(f"❌ Webhook erro: {data}")
-    else:
-        log.info(f"✅ Webhook enviado com sucesso")
-    return data
+    for tentativa in range(3):
+        try:
+            resp = requests.post(url, json=body, timeout=30)
+            data = resp.json()
+            if data.get("code") != 0:
+                log.error(f"❌ Webhook erro: {data}")
+            else:
+                log.info(f"✅ Webhook enviado com sucesso")
+            return data
+        except Exception as e:
+            log.warning(f"⚠️ Webhook tentativa {tentativa+1}/3 falhou: {e}")
+            if tentativa < 2:
+                time.sleep(5)
+    log.error("❌ Webhook falhou após 3 tentativas")
+    return {}
 
 
 def _resolver_destino(token: str, destino: str) -> tuple[str, str]:
@@ -484,6 +493,82 @@ def enviar_lacre(lacres: list[dict], destinos: list[str]):
                 _enviar_card_feishu(token, rid, card, rtype)
     except Exception as e:
         log.error(f"❌ Feishu lacre falhou: {e}")
+
+
+_EMOJI_DC_CICLO = ["🔵", "🟠", "🟢", "🟣", "🟡"]
+
+
+def _fmt_min(m: int | None) -> str:
+    if m is None:
+        return "—"
+    h, mm = divmod(abs(int(m)), 60)
+    sinal = "-" if m < 0 else ""
+    return f"{sinal}{h:02d}:{mm:02d}"
+
+
+def _card_atraso_lacre(atrasos: list[dict]) -> dict:
+    """Card de ATRASO de lacre/deslacre, agrupado por DC (igual a aba 'Resumo
+    DC' do relatorio) - so entra viagem com atraso comprovado (mesmo 1 min),
+    pra operacao cobrar o responsavel. Pedido em 19/11/2026."""
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    por_dc: dict[str, list[dict]] = {}
+    for a in atrasos:
+        por_dc.setdefault(a.get("dc", "—"), []).append(a)
+
+    elements = [{"tag": "div", "text": {"tag": "lark_md",
+        "content": "**🚨 Lacre — viagens com atraso comprovado**\n"
+                   "Atraso real pra subir o lacre/deslacre (mesmo 1 minuto) — acione o responsável."}},
+        {"tag": "hr"}]
+
+    for i, (dc, viagens) in enumerate(por_dc.items()):
+        emoji = _EMOJI_DC_CICLO[i % len(_EMOJI_DC_CICLO)]
+        elements.append({"tag": "div", "text": {"tag": "lark_md",
+            "content": f"{emoji} **{dc}** · {len(viagens)} viagem(ns)"}})
+        for v in viagens:
+            linhas = [f"**ID:** {v.get('id','')}　·　{v.get('base','')} ({v.get('sentido','')})"]
+            if v.get("atraso_lacre_min"):
+                linhas.append(
+                    f"🔴 Saída: planejado **{v.get('saida_plan','—')}** → lacre **{v.get('hora_lacre','—')}** "
+                    f"— atraso **{_fmt_min(v['atraso_lacre_min'])}**")
+            if v.get("atraso_deslacre_min"):
+                linhas.append(
+                    f"🔴 Chegada: planejado **{v.get('cheg_plan','—')}** → deslacre **{v.get('hora_deslacre','—')}** "
+                    f"— atraso **{_fmt_min(v['atraso_deslacre_min'])}**")
+            tel = v.get("telefone", "")
+            tel_txt = f"📞 {tel}" if tel and tel not in ("", "nan") else "📞 —"
+            linhas.append(f"👤 {v.get('condutor','—')}　🏢 {v.get('transportador','—')}　{tel_txt}")
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(linhas)}})
+        elements.append({"tag": "hr"})
+
+    elements.append({"tag": "note", "elements": [
+        {"tag": "plain_text", "content": f"BRDrive Robot — JT Express | {agora}"}
+    ]})
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {"title": {"tag": "plain_text",
+                              "content": f"🚨 Lacre — {len(atrasos)} viagem(ns) com atraso"},
+                   "template": "red"},
+        "elements": elements,
+    }
+
+
+def enviar_atraso_lacre(atrasos: list[dict], destinos: list[str]):
+    """Envia alerta de atraso de lacre/deslacre para o grupo de cobrança."""
+    if not atrasos or not USAR_FEISHU:
+        return
+    card = _card_atraso_lacre(atrasos)
+    try:
+        token = None
+        for alvo in destinos:
+            if alvo.startswith("https://"):
+                _enviar_webhook(alvo, card)
+            else:
+                if token is None:
+                    token = _get_token()
+                rid, rtype = _resolver_destino(token, alvo)
+                _enviar_card_feishu(token, rid, card, rtype)
+    except Exception as e:
+        log.error(f"❌ Feishu atraso lacre falhou: {e}")
 
 
 def enviar_alerta_sistema(mensagem: str, destinos: list[str]):
