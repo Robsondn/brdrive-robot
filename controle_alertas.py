@@ -69,6 +69,14 @@ def filtrar_novos(alertas: list[dict]) -> list[dict]:
                 "categoria":  a.get("categoria", ""),
                 "saida_plan": a.get("saida_plan", ""),
                 "origem":     a.get("origem", ""),
+                # Pra dar pra cobrar o responsavel quando a viagem "nao bateu"
+                # (pedido em 19/11/2026 - "qual que vou la cobrar o
+                # responsavel por ainda nao ter liberado meu carro?").
+                "destino":    a.get("destino", ""),
+                "condutor":   a.get("condutor", ""),
+                "transp":     a.get("transp", ""),
+                "placa":      a.get("placa", ""),
+                "telefone":   a.get("telefone", ""),
             }
 
     dados["alertas"] = enviados

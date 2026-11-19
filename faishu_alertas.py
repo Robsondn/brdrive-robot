@@ -225,10 +225,21 @@ def _card_ciclo(status: list[dict], novos: list[dict], categoria: str | None = N
         for s in status:
             icone = "✅" if s.get("bateu") else "❌"
             extra = f"Bateu às **{s['bateu_em']}**" if s.get("bateu") else "⚠️ Não bateu no app"
-            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": (
+            linha = (
                 f"{icone} **[{s.get('regional','')}]** {s.get('viagem','')} "
                 f"| Saída plan.: {s.get('saida_plan','')} | {extra}"
-            )}})
+            )
+            # Sem bateu: mostra quem acionar (condutor/transportadora/telefone)
+            # pra dar pra cobrar - pedido em 19/11/2026.
+            if not s.get("bateu"):
+                tel = s.get("telefone", "")
+                tel_txt = f"📞 {tel}" if tel and tel not in ("", "nan") else "📞 —"
+                linha += (
+                    f"\n**ID:** {s.get('id','')}　·　{s.get('origem','—')} → {s.get('destino','—')}\n"
+                    f"👤 {s.get('condutor','—') or '—'}　🏢 {s.get('transp','—') or '—'}　"
+                    f"🚚 {s.get('placa','—') or '—'}　{tel_txt}"
+                )
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": linha}})
         elements.append({"tag": "hr"})
 
     if novos:
@@ -506,28 +517,43 @@ def _fmt_min(m: int | None) -> str:
     return f"{sinal}{h:02d}:{mm:02d}"
 
 
+_ICON_COR_DC_CICLO = ["blue", "orange", "green", "purple", "indigo", "carmine"]
+
+
 def _card_atraso_lacre(atrasos: list[dict]) -> dict:
     """Card de ATRASO de lacre/deslacre, agrupado por DC (igual a aba 'Resumo
     DC' do relatorio) - so entra viagem com atraso comprovado (mesmo 1 min),
-    pra operacao cobrar o responsavel. Pedido em 19/11/2026."""
+    pra operacao cobrar o responsavel. Pedido em 19/11/2026.
+
+    Schema 2.0 com collapsible_panel por DC (fechado por padrao, seta
+    colorida por DC) - testado direto no webhook de producao antes de
+    trocar: fundo colorido no header do painel deixa o texto quase
+    ilegivel nessa versao do Feishu (sem campo pra forcar cor do texto),
+    entao o painel fica sem cor de fundo e so a seta (icon.color) leva a
+    cor do DC."""
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     por_dc: dict[str, list[dict]] = {}
     for a in atrasos:
         por_dc.setdefault(a.get("dc", "—"), []).append(a)
 
-    elements = [{"tag": "div", "text": {"tag": "lark_md",
-        "content": "**🚨 Lacre — viagens com atraso comprovado**\n"
-                   "Atraso real pra subir o lacre/deslacre (mesmo 1 minuto) — acione o responsável."}},
-        {"tag": "hr"}]
+    elements = [
+        {"tag": "markdown", "content": "**🚨 Lacre — viagens com atraso comprovado**\n"
+                   "Atraso real pra subir o lacre/deslacre (mesmo 1 minuto) — acione o responsável."},
+        {"tag": "hr"},
+    ]
 
     for i, (dc, viagens) in enumerate(por_dc.items()):
         emoji = _EMOJI_DC_CICLO[i % len(_EMOJI_DC_CICLO)]
-        elements.append({"tag": "div", "text": {"tag": "lark_md",
-            "content": f"{emoji} **{dc}** · {len(viagens)} viagem(ns)"}})
+        cor_seta = _ICON_COR_DC_CICLO[i % len(_ICON_COR_DC_CICLO)]
+        painel_elementos = []
         for v in viagens:
-            cat = v.get("categoria") or v.get("tipo_linha", "—")
+            cat = v.get("categoria") or "—"
             cat_emoji = _EMOJI_LACRE.get(cat, "")
-            linhas = [f"**ID:** {v.get('id','')}　·　{v.get('base','')} ({v.get('sentido','')})　·　{cat_emoji} {cat}"]
+            tipo_linha = (v.get("tipo_linha") or "").title() or "—"
+            linhas = [
+                f"**ID:** {v.get('id','')}　·　{v.get('base','')} ({v.get('sentido','')})",
+                f"{cat_emoji} {cat} · {tipo_linha}",
+            ]
             if v.get("atraso_lacre_min"):
                 linhas.append(
                     f"🔴 Saída: planejado **{v.get('saida_plan','—')}** → lacre **{v.get('hora_lacre','—')}** "
@@ -539,18 +565,40 @@ def _card_atraso_lacre(atrasos: list[dict]) -> dict:
             tel = v.get("telefone", "")
             tel_txt = f"📞 {tel}" if tel and tel not in ("", "nan") else "📞 —"
             linhas.append(f"👤 {v.get('condutor','—')}　🏢 {v.get('transportador','—')}　{tel_txt}")
-            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(linhas)}})
-        elements.append({"tag": "hr"})
+            painel_elementos.append({"tag": "markdown", "content": "\n".join(linhas)})
+            painel_elementos.append({"tag": "hr"})
+        if painel_elementos:
+            painel_elementos.pop()  # tira o ultimo hr (sobra dentro do painel)
 
-    elements.append({"tag": "note", "elements": [
-        {"tag": "plain_text", "content": f"BRDrive Robot — JT Express | {agora}"}
-    ]})
+        elements.append({
+            "tag": "collapsible_panel",
+            "expanded": True,
+            "header": {
+                "title": {"tag": "lark_md", "content": f"{emoji} **{dc}** · {len(viagens)} viagem(ns)"},
+                "vertical_align": "center",
+                "icon": {"tag": "standard_icon", "token": "down_filled", "color": cor_seta},
+                "icon_position": "right",
+            },
+            "elements": painel_elementos,
+        })
+
+    elements.append({"tag": "hr"})
+    elements.append({"tag": "markdown", "content": f"BRDrive Robot — JT Express | {agora}"})
+
+    # Cor do cabecalho pelo tipo mais grave presente no lote (pedido em
+    # 19/11/2026): chegada atrasada e mais critico (viagem inteira ja
+    # fechou o ciclo atrasada) que so a saida, entao vermelho tem
+    # prioridade sobre laranja quando os dois aparecem juntos.
+    tem_atraso_chegada = any(a.get("atraso_deslacre_min") for a in atrasos)
+    cor_cabecalho = "red" if tem_atraso_chegada else "orange"
+
     return {
+        "schema": "2.0",
         "config": {"wide_screen_mode": True},
         "header": {"title": {"tag": "plain_text",
                               "content": f"🚨 Lacre — {len(atrasos)} viagem(ns) com atraso"},
-                   "template": "red"},
-        "elements": elements,
+                   "template": cor_cabecalho},
+        "body": {"elements": elements},
     }
 
 

@@ -330,6 +330,7 @@ def verificar_alertas_df(df: pd.DataFrame) -> list[dict]:
             "condutor":      str(r.get(COL_CONDUTOR, "")),
             "transp":        str(r.get(COL_TRANSP, "")),
             "placa":         str(r.get(COL_PLACA, "")),
+            "telefone":      str(r.get(COL_TELEFONE, "") or ""),
             "saida_plan":    saida_plan_dt.strftime("%H:%M"),
             "min_restantes": minutos_restantes,
         })
