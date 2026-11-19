@@ -91,6 +91,22 @@ def verificar_lacre_df(df: "pd.DataFrame") -> list[dict]:
     return resultado
 
 
+def _categoria_viagem(tipo: str, origem: str, saida_plan) -> str | None:
+    """Mesma regra de categoria usada em verificar_lacre_df - Coleta PA /
+    Coleta Base / Devolução / Secundária. None quando nao se enquadra."""
+    tipo_upper = (tipo or "").strip().upper()
+    origem_upper = (origem or "").strip().upper()
+    if "COLETA" in tipo_upper:
+        if origem_upper.startswith("PA"):
+            return "Coleta PA"
+        if saida_plan is None or pd.isna(saida_plan) or saida_plan.hour >= 13:
+            return "Coleta Base"
+        return "Devolução"
+    if "ENTREGA" in tipo_upper:
+        return "Secundária"
+    return None
+
+
 def _dc_base_sentido(origem: str, chegada: str) -> tuple[str, str, str]:
     """SP BRE sempre vira grupo proprio nos dois sentidos (saindo ou
     chegando), mesmo quando o outro lado e um DC de verdade - pedido em
@@ -153,6 +169,7 @@ def verificar_atraso_lacre_df(df: "pd.DataFrame") -> list[dict]:
         origem  = str(r.get(COL_ORIGEM, ""))
         destino = str(r.get(COL_DESTINO, ""))
         dc, base, sentido = _dc_base_sentido(origem, destino)
+        categoria = _categoria_viagem(tipo, origem, saida_plan)
 
         resultado.append({
             "id":                   str(r.get(COL_ID, "")),
@@ -161,6 +178,7 @@ def verificar_atraso_lacre_df(df: "pd.DataFrame") -> list[dict]:
             "telefone":             str(r.get(COL_TELEFONE, "") or ""),
             "transportador":        str(r.get(COL_TRANSP, "") or ""),
             "tipo_linha":           tipo,
+            "categoria":            categoria,
             "dc":                   dc,
             "base":                 base,
             "sentido":              sentido,

@@ -525,7 +525,9 @@ def _card_atraso_lacre(atrasos: list[dict]) -> dict:
         elements.append({"tag": "div", "text": {"tag": "lark_md",
             "content": f"{emoji} **{dc}** · {len(viagens)} viagem(ns)"}})
         for v in viagens:
-            linhas = [f"**ID:** {v.get('id','')}　·　{v.get('base','')} ({v.get('sentido','')})"]
+            cat = v.get("categoria") or v.get("tipo_linha", "—")
+            cat_emoji = _EMOJI_LACRE.get(cat, "")
+            linhas = [f"**ID:** {v.get('id','')}　·　{v.get('base','')} ({v.get('sentido','')})　·　{cat_emoji} {cat}"]
             if v.get("atraso_lacre_min"):
                 linhas.append(
                     f"🔴 Saída: planejado **{v.get('saida_plan','—')}** → lacre **{v.get('hora_lacre','—')}** "
